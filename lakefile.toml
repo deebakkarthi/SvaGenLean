@@ -1,7 +1,7 @@
 name = "sva_gen_lean"
 version = "0.1.0"
 keywords = ["math"]
-defaultTargets = ["SvaGenLean"]
+defaultTargets = ["Main"]
 
 [leanOptions]
 pp.unicode.fun = true # pretty-prints `fun a ↦ b`
