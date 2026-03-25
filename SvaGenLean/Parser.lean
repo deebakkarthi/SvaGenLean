@@ -64,6 +64,7 @@ def unopStr : Token → Option String
   | .AMP         => some "&"   | .TILDE_AMP   => some "~&"
   | .PIPE        => some "|"   | .TILDE_PIPE  => some "~|"
   | .CARET       => some "^"   | .TILDE_CARET => some "~^"
+  | .CARET_PIPE  => some "^|"
   | _            => none
 
 def binopBP : Token → Option (Nat × Nat)
@@ -74,8 +75,9 @@ def binopBP : Token → Option (Nat × Nat)
   | .AMP                                          => some (50, 51)
   | .EQ_EQ | .BANG_EQ | .EQ_EQ_EQ | .BANG_EQ_EQ  => some (60, 61)
   | .LT | .LT_EQ | .GT | .GT_EQ                  => some (70, 71)
-  | .LT_LT | .GT_GT | .GT_GT_GT                   => some (80, 81)
+  | .LT_LT | .LT_LT_LT | .GT_GT | .GT_GT_GT       => some (80, 81)
   | .PLUS | .MINUS                                => some (90, 91)
+  | .STAR_STAR                                     => some (110, 109)  -- right-assoc
   | .STAR | .SLASH | .PERCENT                     => some (100, 101)
   | _                                             => none
 
@@ -87,7 +89,8 @@ def binopStr : Token → String
   | .LT => "<" | .LT_EQ => "<=" | .GT => ">" | .GT_EQ => ">="
   | .AMP => "&" | .PIPE => "|" | .CARET => "^"
   | .TILDE_CARET => "~^" | .CARET_TILDE => "^~"
-  | .LT_LT => "<<" | .GT_GT => ">>" | .GT_GT_GT => ">>>"
+  | .LT_LT => "<<" | .LT_LT_LT => "<<<" | .GT_GT => ">>" | .GT_GT_GT => ">>>"
+  | .STAR_STAR => "**"
   | t => toString (repr t)
 
 -- Skip optional signed/unsigned qualifier
@@ -108,6 +111,30 @@ def eatTypeQual : ParseM Unit := do
 -- ---------------------------------------------------------------------------
 
 mutual
+
+-- Parse an identifier, discarding any optional `= expr` initializer.
+-- Used in real/realtime/net declarations that support inline assignment.
+partial def parseNameWithInit : ParseM String := do
+  let n ← expectIdent
+  if (← eat .EQ) then let _ ← parseExpr
+  return n
+
+-- Skip a `(* ... *)` attribute annotation.
+-- Appears before module items and ANSI port declarations.
+partial def eatAttrAnnotation : ParseM Unit := do
+  if (← peek) == .LPAREN then
+    let saved ← get
+    let _ ← advance  -- consume LPAREN
+    if (← peek) == .STAR then
+      let _ ← advance  -- consume STAR
+      let mut cont := true
+      while cont do
+        let tk ← advance
+        if tk == .EOF then cont := false
+        else if tk == .STAR && (← peek) == .RPAREN then
+          let _ ← advance; cont := false
+    else
+      set saved  -- not an attribute annotation; put back
 
 partial def parseIdent : ParseM Ident := do
   let first ← expectIdent
@@ -137,8 +164,9 @@ partial def parseDelay : ParseM Delay := do
   expect .HASH
   let t ← peek
   match t with
-  | .UNSIGNED_NUMBER s => let _ ← advance; return .number s
-  | .IDENTIFIER _      => return .ident (← parseIdent)
+  | .UNSIGNED_NUMBER s  => let _ ← advance; return .number s
+  | .IDENTIFIER _       => return .ident (← parseIdent)
+  | .COMPILER_DIRECTIVE s => let _ ← advance; return .ident s  -- macro expansion
   | .LPAREN =>
     let _ ← advance
     let e1 ← parseExpr
@@ -201,7 +229,7 @@ partial def parseExpr : ParseM Expr := parseExprBP 0
 partial def parseExprBP (minBP : Nat) : ParseM Expr := do
   let t ← peek
   let lhs ← match unopStr t with
-    | some op => let _ ← advance; return Expr.unary op (← parseExprBP 200)
+    | some op => let _ ← advance; pure (Expr.unary op (← parseExprBP 200))
     | none    => parsePrimary
   parseInfix lhs minBP
 
@@ -226,8 +254,9 @@ partial def parseInfix (lhs : Expr) (minBP : Nat) : ParseM Expr := do
 partial def parsePrimary : ParseM Expr := do
   let t ← peek
   match t with
-  | .UNSIGNED_NUMBER s => let _ ← advance; return .number s
-  | .STRING s          => let _ ← advance; return .string s
+  | .UNSIGNED_NUMBER s    => let _ ← advance; return .number s
+  | .STRING s             => let _ ← advance; return .string s
+  | .COMPILER_DIRECTIVE s => let _ ← advance; return .ident s  -- macro use
   | .LPAREN =>
     let _ ← advance
     let e ← parseExpr
@@ -266,14 +295,29 @@ partial def parsePrimary : ParseM Expr := do
     | .LBRACKET =>
       let _ ← advance; let idx ← parseExpr
       let t3 ← peek
-      if t3 == .COLON then
-        let _ ← advance; let lo ← parseExpr; expect .RBRACKET
-        return .slice (.ident name) idx lo
-      else if t3 == .PLUS_COLON || t3 == .MINUS_COLON then
-        let _ ← advance; let width ← parseExpr; expect .RBRACKET
-        return .slice (.ident name) idx width
-      else
-        expect .RBRACKET; return .index (.ident name) idx
+      let e ←
+        if t3 == .COLON then
+          let _ ← advance; let lo ← parseExpr; expect .RBRACKET
+          pure (Expr.slice (.ident name) idx lo)
+        else if t3 == .PLUS_COLON || t3 == .MINUS_COLON then
+          let _ ← advance; let width ← parseExpr; expect .RBRACKET
+          pure (Expr.slice (.ident name) idx width)
+        else
+          expect .RBRACKET; pure (Expr.index (.ident name) idx)
+      -- Multi-dimensional indexing: a[i][j] — consume additional [...]
+      let mut result := e
+      while (← peek) == .LBRACKET do
+        let _ ← advance; let idx2 ← parseExpr
+        let t4 ← peek
+        if t4 == .COLON then
+          let _ ← advance; let lo2 ← parseExpr; expect .RBRACKET
+          result := .slice result idx2 lo2
+        else if t4 == .PLUS_COLON || t4 == .MINUS_COLON then
+          let _ ← advance; let w2 ← parseExpr; expect .RBRACKET
+          result := .slice result idx2 w2
+        else
+          expect .RBRACKET; result := .index result idx2
+      return result
     | _ => return .ident name
   | other => throw s!"unexpected token in expression: {repr other}"
 
@@ -305,7 +349,9 @@ partial def parseLValue : ParseM LValue := do
 
 partial def parseEventExpr : ParseM EventExpr := do
   let lhs ← parseEventTerm
-  if (← peek) == .OR then let _ ← advance; return .or lhs (← parseEventExpr)
+  -- Accept both `or` keyword and `,` as event expression separators
+  if (← peek) == .OR || (← peek) == .COMMA then
+    let _ ← advance; return .or lhs (← parseEventExpr)
   return lhs
 
 partial def parseEventTerm : ParseM EventExpr := do
@@ -341,7 +387,11 @@ partial def parseDelayOrEventControl : ParseM DelayOrEventControl := do
   | .AT   =>
     let _ ← advance
     if (← eat .LPAREN) then
+      -- @(*) wildcard sensitivity list (Verilog-2001 accepted by iverilog -g1995)
+      if (← eat .STAR) then expect .RPAREN; return .event (.expr (.ident "*"))
       let ee ← parseEventExpr; expect .RPAREN; return .event ee
+    -- bare @* (no parens)
+    if (← eat .STAR) then return .event (.expr (.ident "*"))
     return .event (.expr (.ident (← parseIdent)))
   | .REPEAT =>
     let _ ← advance; expect .LPAREN
@@ -494,7 +544,8 @@ partial def parseBlockDecls : ParseM (List BlockDecl) := do
     let t ← peek
     match t with
     | .PARAMETER | .LOCALPARAM =>
-      let _ ← advance; let a ← parseParamAssigns; expect .SEMI
+      let _ ← advance; eatTypeQual; eatSignQual; let _ ← tryP parseRange
+      let a ← parseParamAssigns; expect .SEMI
       decls := decls ++ [.param a]
     | .REG =>
       let _ ← advance
@@ -569,7 +620,9 @@ partial def parseTfDecls : ParseM (List TfDecl) := do
       let _ ← advance; let vs ← parseRegisterVars; expect .SEMI
       ds := ds ++ [.integer vs]
     | .REAL =>
-      let _ ← advance; let vs ← sepBy1 expectIdent .COMMA; expect .SEMI
+      let _ ← advance
+      let vs ← sepBy1 parseNameWithInit .COMMA
+      expect .SEMI
       ds := ds ++ [.real vs]
     | .TIME =>
       let _ ← advance; let vs ← parseRegisterVars; expect .SEMI
@@ -602,9 +655,10 @@ partial def parseModConns : ParseM ModConns := do
     let es ← sepBy1 parseOptExpr .COMMA
     return .positional es
 where
-  parseNamedConn : ParseM (Ident × Expr) := do
+  parseNamedConn : ParseM (Ident × Option Expr) := do
     expect .DOT; let name ← expectIdent; expect .LPAREN
-    let e ← parseExpr; expect .RPAREN
+    let e ← if (← check .RPAREN) then pure none else some <$> parseExpr
+    expect .RPAREN
     return (name, e)
   parseOptExpr : ParseM (Option Expr) := do
     if (← check .COMMA) || (← check .RPAREN) then return none
@@ -621,30 +675,52 @@ partial def parseModuleInstance : ParseM ModInstance := do
 -- ---- ANSI-style port/tf parsers --------------------------------------------
 
 -- Parse one port in an ANSI-style port list: [dir] [type] [signed] [range] name
-partial def parseAnsiPort : ParseM Port := do
-  let t ← peek
-  if t == .INPUT || t == .OUTPUT || t == .INOUT then let _ ← advance
-  eatTypeQual
-  eatSignQual
-  let _ ← tryP parseRange
-  let name ← expectIdent
-  return .anon (some (.ref name none))
+-- Parse an ANSI-style module port list (inside the parentheses, after the LPAREN).
+-- Direction and range carry forward when they are omitted for subsequent ports
+-- in the same comma-separated group (e.g. "input [7:0] a, b" → both 8-bit inputs).
+partial def parseAnsiPortList : ParseM (List (Port × ModuleItem)) := do
+  if (← check .RPAREN) then return []
+  let mut results : List (Port × ModuleItem) := []
+  let mut curDir  : Token        := .INPUT
+  let mut curRange : Option Range := none
+  let mut cont := true
+  while cont do
+    eatAttrAnnotation  -- skip optional (* ... *) attribute
+    let t ← peek
+    if t == .INPUT || t == .OUTPUT || t == .INOUT then
+      curDir ← advance
+      eatTypeQual; eatSignQual
+      curRange ← tryP parseRange
+    -- else: inherit curDir and curRange from previous group
+    let name ← expectIdent
+    let port := Port.anon (some (.ref name none))
+    let item : ModuleItem := match curDir with
+      | .OUTPUT => .output_decl curRange [name]
+      | .INOUT  => .inout_decl  curRange [name]
+      | _       => .input_decl  curRange [name]
+    results := results ++ [(port, item)]
+    if not (← eat .COMMA) then cont := false
+  return results
 
--- Parse ANSI-style function/task port list (inside parentheses)
+-- Parse ANSI-style function/task port list (inside parentheses).
+-- Direction and range carry forward across commas within the same group.
 partial def parseAnsiTfPortList : ParseM (List TfDecl) := do
   if (← check .RPAREN) then return []
   let mut decls : List TfDecl := []
+  let mut curDir   : Token       := .INPUT
+  let mut curRange : Option Range := none
   let mut cont := true
   while cont do
     let dir ← peek
-    if dir == .INPUT || dir == .OUTPUT || dir == .INOUT then let _ ← advance
-    eatTypeQual; eatSignQual
-    let r ← tryP parseRange
+    if dir == .INPUT || dir == .OUTPUT || dir == .INOUT then
+      curDir ← advance
+      eatTypeQual; eatSignQual
+      curRange ← tryP parseRange
     let name ← expectIdent
-    let decl : TfDecl := match dir with
-      | .OUTPUT => .output r [name]
-      | .INOUT  => .inout r [name]
-      | _       => .input r [name]
+    let decl : TfDecl := match curDir with
+      | .OUTPUT => .output curRange [name]
+      | .INOUT  => .inout  curRange [name]
+      | _       => .input  curRange [name]
     decls := decls ++ [decl]
     if not (← eat .COMMA) then cont := false
   return decls
@@ -678,25 +754,29 @@ partial def parsePort : ParseM Port := do
            else some <$> parsePortExpr
   return .anon e
 
-partial def parsePortList : ParseM (List Port) := do
+partial def parsePortList : ParseM (List Port × List ModuleItem) := do
   expect .LPAREN
   if (← check .RPAREN) then
-    expect .RPAREN; return []
+    expect .RPAREN; return ([], [])
   let firstTok ← peek
-  let ports ←
-    if firstTok == .INPUT || firstTok == .OUTPUT || firstTok == .INOUT then
-      sepBy1 parseAnsiPort .COMMA   -- ANSI-style port list
-    else
-      sepBy1 parsePort .COMMA       -- non-ANSI (Verilog-1995 style)
-  expect .RPAREN; return ports
+  if firstTok == .INPUT || firstTok == .OUTPUT || firstTok == .INOUT then
+    -- ANSI-style: collect ports and synthetic declarations
+    let pairs ← parseAnsiPortList
+    expect .RPAREN
+    return (pairs.map (·.1), pairs.map (·.2))
+  else
+    -- non-ANSI (Verilog-1995 style): no synthetic declarations
+    let ports ← sepBy1 parsePort .COMMA
+    expect .RPAREN; return (ports, [])
 
 -- ---- Range or type ---------------------------------------------------------
 
 partial def parseRangeOrType : ParseM RangeOrType := do
+  eatSignQual  -- skip optional signed/unsigned before the range
   let t ← peek
   match t with
-  | .INTEGER  => let _ ← advance; return .integer
-  | .REAL     => let _ ← advance; return .real
+  | .INTEGER  => let _ ← advance; eatSignQual; return .integer
+  | .REAL | .REALTIME => let _ ← advance; return .real
   | .LBRACKET => return .range (← parseRange)
   | other     => throw s!"expected range or type, got {repr other}"
 
@@ -734,11 +814,14 @@ partial def tokenToNetType (t : Token) : Option NetType :=
 -- ---- Module items ----------------------------------------------------------
 
 partial def parseModuleItem : ParseM (Option ModuleItem) := do
+  eatAttrAnnotation
   let t ← peek
   match t with
   | .ENDMODULE | .EOF => return none
   | .PARAMETER | .LOCALPARAM =>
-    let _ ← advance; let a ← parseParamAssigns; expect .SEMI
+    -- optional: signed/unsigned, real/integer, or range qualifier
+    let _ ← advance; eatTypeQual; eatSignQual; let _ ← tryP parseRange
+    let a ← parseParamAssigns; expect .SEMI
     return some (.param_decl a)
   | .INPUT =>
     let _ ← advance; eatTypeQual; eatSignQual
@@ -770,7 +853,12 @@ partial def parseModuleItem : ParseM (Option ModuleItem) := do
       eatSignQual
       let er ← tryP parseExpandRange
       let d  ← tryP parseDelay
-      let vs ← sepBy1 expectIdent .COMMA; expect .SEMI
+      -- Each name may optionally have "= expr" initializer (Verilog-2001 extension)
+      let vs ← sepBy1 (do
+        let n ← expectIdent
+        if (← eat .EQ) then let _ ← parseExpr
+        return n) .COMMA
+      expect .SEMI
       return some (.net_decl nt ds er d vs)
     | none =>
       match t with
@@ -785,8 +873,10 @@ partial def parseModuleItem : ParseM (Option ModuleItem) := do
       | .TIME =>
         let _ ← advance; let vs ← parseRegisterVars; expect .SEMI
         return some (.time_decl vs)
-      | .REAL =>
-        let _ ← advance; let vs ← sepBy1 expectIdent .COMMA; expect .SEMI
+      | .REAL | .REALTIME =>
+        let _ ← advance
+        let vs ← sepBy1 parseNameWithInit .COMMA
+        expect .SEMI
         return some (.real_decl vs)
       | .EVENT =>
         let _ ← advance; let ns ← sepBy1 expectIdent .COMMA; expect .SEMI
@@ -826,22 +916,34 @@ partial def parseModuleItem : ParseM (Option ModuleItem) := do
             expect .SEMI; parseTfDecls
         let body ← parseStmt; expect .ENDFUNCTION
         return some (.func_def ret name decls body)
+      -- Gate keyword tokens (and, or, xor, buf, not, etc. are all keywords in
+      -- our lexer, so they arrive as dedicated tokens, not IDENTIFIER)
+      | .AND | .NAND | .OR | .NOR | .XOR | .XNOR
+      | .BUF | .BUFIF0 | .BUFIF1 | .NOT | .NOTIF0 | .NOTIF1
+      | .PULLDOWN | .PULLUP
+      | .NMOS | .PMOS | .CMOS
+      | .TRAN | .TRANIF0 | .TRANIF1 =>
+        let name := match t with
+          | .AND => "and" | .NAND => "nand" | .OR => "or" | .NOR => "nor"
+          | .XOR => "xor" | .XNOR => "xnor" | .BUF => "buf"
+          | .BUFIF0 => "bufif0" | .BUFIF1 => "bufif1"
+          | .NOT => "not" | .NOTIF0 => "notif0" | .NOTIF1 => "notif1"
+          | .PULLDOWN => "pulldown" | .PULLUP => "pullup"
+          | .NMOS => "nmos" | .PMOS => "pmos" | .CMOS => "cmos"
+          | .TRAN => "tran" | .TRANIF0 => "tranif0" | .TRANIF1 => "tranif1"
+          | _ => "gate"
+        let _ ← advance
+        let ds ← tryP parseDriveStrength
+        let d  ← tryP parseDelay
+        let insts ← sepBy1 parseGateInstance .COMMA; expect .SEMI
+        return some (.gate_decl name ds d insts)
       | .IDENTIFIER _ =>
         let name ← parseIdent
-        let gateTypes := ["and","nand","or","nor","xor","xnor","buf","bufif0","bufif1",
-                          "not","notif0","notif1","pulldown","pullup","nmos","pmos","cmos",
-                          "tran","tranif0","tranif1"]
-        if gateTypes.contains name then
-          let ds ← tryP parseDriveStrength
-          let d  ← tryP parseDelay
-          let insts ← sepBy1 parseGateInstance .COMMA; expect .SEMI
-          return some (.gate_decl name ds d insts)
-        else
-          let params ← tryP (do
-            expect .HASH; expect .LPAREN
-            let es ← sepBy1 parseExpr .COMMA; expect .RPAREN; return es)
-          let insts ← sepBy1 parseModuleInstance .COMMA; expect .SEMI
-          return some (.mod_inst name (params.getD []) insts)
+        let params ← tryP (do
+          expect .HASH; expect .LPAREN
+          let es ← sepBy1 parseExpr .COMMA; expect .RPAREN; return es)
+        let insts ← sepBy1 parseModuleInstance .COMMA; expect .SEMI
+        return some (.mod_inst name (params.getD []) insts)
       | _ => let _ ← advance; return none  -- skip unknown
 
 -- ---- Module ----------------------------------------------------------------
@@ -851,9 +953,9 @@ partial def parseModule : ParseM Module := do
   if t != .MODULE && t != .MACROMODULE then
     throw s!"expected 'module', got {repr t}"
   let name ← expectIdent
-  let ports ← if (← check .LPAREN) then parsePortList else pure []
+  let (ports, portItems) ← if (← check .LPAREN) then parsePortList else pure ([], [])
   expect .SEMI
-  let mut items : List ModuleItem := []
+  let mut items : List ModuleItem := portItems
   let mut cont := true
   while cont do
     let t ← peek

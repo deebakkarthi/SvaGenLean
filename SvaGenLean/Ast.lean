@@ -154,7 +154,7 @@ inductive NetType : Type
 
 inductive ModConns : Type
   | positional (es : List (Option Expr))
-  | named      (cs : List (Ident × Expr))
+  | named      (cs : List (Ident × Option Expr))
   deriving Repr
 
 structure GateInstance : Type where

@@ -40,12 +40,12 @@ inductive Token
   -- Operators
   | PLUS | MINUS | STAR | SLASH | PERCENT
   | BANG | TILDE | AMP | PIPE | CARET
-  | TILDE_AMP | TILDE_PIPE | TILDE_CARET | CARET_TILDE
+  | TILDE_AMP | TILDE_PIPE | TILDE_CARET | CARET_TILDE | CARET_PIPE
   | AMP_AMP | PIPE_PIPE
   | EQ_EQ | BANG_EQ | EQ_EQ_EQ | BANG_EQ_EQ
   | LT | LT_EQ | GT | GT_EQ
-  | LT_LT | GT_GT | GT_GT_GT
-  | EQ | ARROW | STAR_GT
+  | LT_LT | LT_LT_LT | GT_GT | GT_GT_GT
+  | EQ | ARROW | STAR_STAR | STAR_GT
   | PLUS_COLON | MINUS_COLON
   | EOF
   deriving Repr, BEq, Inhabited
@@ -153,7 +153,22 @@ partial def skipWsAndComments : Chars → Chars
       | '*' :: rest => skipWsAndComments (skipBlock rest)
       | _           => c :: cs
     else if c == '`' then
-      skipWsAndComments (skipLine cs)  -- skip preprocessor directive lines
+      -- Only skip if this looks like a standalone directive line
+      -- (previous non-whitespace was a newline, i.e. we're at column 0 of meaning).
+      -- Heuristic: skip the line only if the backtick identifier is a known
+      -- directive keyword; otherwise let lexOne handle it as a COMPILER_DIRECTIVE token.
+      let (name, rest) := collectWhile cs isIdentChar
+      let directives := ["ifdef", "ifndef", "else", "elsif", "endif",
+                         "include", "define", "undef", "line",
+                         "celldefine", "endcelldefine",
+                         "default_nettype", "resetall", "timescale",
+                         "unconnected_drive", "nounconnected_drive",
+                         "begin_keywords", "end_keywords"]
+      if directives.contains name then
+        skipWsAndComments (skipLine rest)
+      else
+        -- Macro use like `CLK — return the chars so lexOne can tokenize it
+        c :: cs
     else c :: cs
 where
   skipLine : Chars → Chars
@@ -179,16 +194,21 @@ def basedDigitPred (base : Char) : Char → Bool :=
   | 'h' | 'H' => fun c => isHexDigit c || xz c || under c
   | _         => fun _ => false
 
+-- Verilog allows whitespace between the base specifier and the digit string.
+private def skipBlanks : Chars → Chars
+  | c :: cs => if c == ' ' || c == '\t' then skipBlanks cs else c :: cs
+  | []      => []
+
 def lexBasedTail (pfx : String) : Chars → String × Chars
   | []        => (pfx ++ "'", [])
   | 's' :: b :: rest =>
-    let (digits, cs) := collectWhile rest (basedDigitPred b)
+    let (digits, cs) := collectWhile (skipBlanks rest) (basedDigitPred b)
     (pfx ++ "'s" ++ b.toString ++ digits, cs)
   | 'S' :: b :: rest =>
-    let (digits, cs) := collectWhile rest (basedDigitPred b)
+    let (digits, cs) := collectWhile (skipBlanks rest) (basedDigitPred b)
     (pfx ++ "'S" ++ b.toString ++ digits, cs)
   | b :: rest =>
-    let (digits, cs) := collectWhile rest (basedDigitPred b)
+    let (digits, cs) := collectWhile (skipBlanks rest) (basedDigitPred b)
     (pfx ++ "'" ++ b.toString ++ digits, cs)
 
 def lexNumber (cs : Chars) : Token × Chars :=
@@ -258,6 +278,7 @@ def lexOne : Chars → Token × Chars
       lexStringLit cs
     else
       match c, cs with
+      | '<', '<' :: '<' :: cs  => (.LT_LT_LT,   cs)
       | '<', '<' :: cs         => (.LT_LT,      cs)
       | '<', '=' :: cs         => (.LT_EQ,      cs)
       | '<', _                 => (.LT,          cs)
@@ -281,7 +302,9 @@ def lexOne : Chars → Token × Chars
       | '~', '^' :: cs         => (.TILDE_CARET,cs)
       | '~', _                 => (.TILDE,       cs)
       | '^', '~' :: cs         => (.CARET_TILDE,cs)
+      | '^', '|' :: cs         => (.CARET_PIPE,  cs)
       | '^', _                 => (.CARET,       cs)
+      | '*', '*' :: cs         => (.STAR_STAR,   cs)
       | '*', '>' :: cs         => (.STAR_GT,    cs)
       | '*', _                 => (.STAR,        cs)
       | '+', ':' :: cs         => (.PLUS_COLON, cs)

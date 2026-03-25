@@ -52,7 +52,7 @@ for f in "$TEST_DIR"/*.v; do
       both_pass=$((both_pass + 1))
     elif [[ $oracle_ok -eq 1 && $parser_ok -eq 0 ]]; then
       parser_miss=$((parser_miss + 1))
-      msg="$("$BIN" "$f" 2>&1 | head -1)"
+      msg="$("$BIN" "$f" 2>&1 | head -1)" || true
       bugs="${bugs}MISS  ${name}: ${msg}\n"
     elif [[ $oracle_ok -eq 0 && $parser_ok -eq 0 ]]; then
       both_reject=$((both_reject + 1))
@@ -64,7 +64,7 @@ for f in "$TEST_DIR"/*.v; do
       both_pass=$((both_pass + 1))
     else
       parser_miss=$((parser_miss + 1))
-      msg="$("$BIN" "$f" 2>&1 | head -1)"
+      msg="$("$BIN" "$f" 2>&1 | head -1)" || true
       bugs="${bugs}FAIL  ${name}: ${msg}\n"
     fi
   fi
