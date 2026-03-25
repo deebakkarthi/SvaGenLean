@@ -6,4 +6,7 @@ def main (args : List String) : IO Unit := do
     | _      => IO.getStdin >>= (·.readToEnd)
   match Verilog.parse src with
   | .error e => println! "Error: {e}"
-  | .ok ast  => println! "{repr ast}"
+  | .ok ast  =>
+    match Verilog.checkCombinational ast with
+    | some msg => println! msg
+    | none     => println! "{repr ast}"

@@ -135,10 +135,10 @@ end
 
 -- Repr instances (manual since mutual blocks can't derive Repr directly)
 instance : Repr Stmt where
-  reprPrec s n := reprPrec (toString "Stmt") n
+  reprPrec _ n := reprPrec (toString "Stmt") n
 
 instance : Repr CaseItem where
-  reprPrec c n := reprPrec (toString "CaseItem") n
+  reprPrec _ n := reprPrec (toString "CaseItem") n
 
 -- ---------------------------------------------------------------------------
 -- Net type
