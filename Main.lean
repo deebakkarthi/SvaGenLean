@@ -1,6 +1,6 @@
 def help: IO Unit := do
   IO.print "Usage: svagenlean [FILE|-h]
-  Convert verilog files into their lean representation
+  Convert a verilog file into its lean representation
   FILE\ta verilog file. If not passed, input is read from stdin
   -h\tPrint out this help message\n"
 
