@@ -89,6 +89,7 @@ private def translateNumber (s : String) : Option String :=
     | _ => none
 
 /-- Map a Verilog unary operator to its Lean equivalent.
+    `opW` is the bit-width of the operand (1 = Bool, else BitVec).
     Reduction ops collapse all bits to a single Bool.
     Operator tokens as produced by the parser:
       &  → all bits 1     (~~~v == 0)
@@ -97,12 +98,13 @@ private def translateNumber (s : String) : Option String :=
       ^| → all bits 0     (v == 0)     [NOR — BNF token]
       ^  → parity         (bvXorReduce v)
       ~^ → even parity    (!bvXorReduce v) -/
-private def translateUnary (op : String) (e : String) : Option String :=
+private def translateUnary (op : String) (opW : Width) (e : String) : Option String :=
   match op with
   | "+"  => some e
   | "-"  => some s!"(-{e})"
   | "!"  => some s!"(!{e})"
-  | "~"  => some s!"(~~~{e})"
+  -- 1-bit (Bool) complement uses `!`; multi-bit uses `~~~`
+  | "~"  => if opW == 1 then some s!"(!{e})" else some s!"(~~~{e})"
   | "&"  => some s!"(~~~{e} == 0)"
   | "~&" => some s!"(~~~{e} != 0)"
   | "|"  => some s!"({e} != 0)"
@@ -112,18 +114,21 @@ private def translateUnary (op : String) (e : String) : Option String :=
   | "~^" => some s!"(!bvXorReduce {e})"
   | _    => none
 
-/-- Map a Verilog binary operator to its Lean equivalent. -/
-private def translateBinary (op : String) (l r : String) : Option String :=
+/-- Map a Verilog binary operator to its Lean equivalent.
+    `opW` is the bit-width of the operands (1 = Bool, else BitVec).
+    For 1-bit signals the bitwise operators map to their Bool equivalents
+    (`Bool.xor`, `&&`, `||`) since `HXor`/`HAnd`/`HOr` have no `Bool` instance. -/
+private def translateBinary (op : String) (opW : Width) (l r : String) : Option String :=
   match op with
   | "+"           => some s!"({l} + {r})"
   | "-"           => some s!"({l} - {r})"
   | "*"           => some s!"({l}.zeroExtend _ * {r}.zeroExtend _)"
   | "/"           => some s!"({l} / {r})"
   | "%"           => some s!"({l} % {r})"
-  | "&"           => some s!"({l} &&& {r})"
-  | "|"           => some s!"({l} ||| {r})"
-  | "^"           => some s!"({l} ^^^ {r})"
-  | "^~" | "~^"   => some s!"(~~~({l} ^^^ {r}))"
+  | "&"           => if opW == 1 then some s!"({l} && {r})"  else some s!"({l} &&& {r})"
+  | "|"           => if opW == 1 then some s!"({l} || {r})"  else some s!"({l} ||| {r})"
+  | "^"           => if opW == 1 then some s!"(Bool.xor {l} {r})" else some s!"({l} ^^^ {r})"
+  | "^~" | "~^"   => if opW == 1 then some s!"(!Bool.xor {l} {r})" else some s!"(~~~({l} ^^^ {r}))"
   | "&&"          => some s!"({l} && {r})"
   | "||"          => some s!"({l} || {r})"
   | "==" | "==="  => some s!"({l} == {r})"
@@ -145,11 +150,14 @@ private def translateExpr (env : WidthEnv) (inp : String) : Expr → Option Stri
   | .number s   => translateNumber s
   | .unary op e => do
       let e' ← translateExpr env inp e
-      translateUnary op e'
+      let w  := inferWidth env e |>.getD 0
+      translateUnary op w e'
   | .binary op l r => do
       let l' ← translateExpr env inp l
       let r' ← translateExpr env inp r
-      translateBinary op l' r'
+      -- Use the left-operand width to choose Bool vs BitVec operators
+      let w  := inferWidth env l |>.getD 0
+      translateBinary op w l' r'
   | .ternary cond t f => do
       let c' ← translateExpr env inp cond
       let t' ← translateExpr env inp t
