@@ -7,7 +7,7 @@ def usage : String :=
   "If FILE is omitted, input is read from stdin.\n" ++
   "\n" ++
   "Options:\n" ++
-  "  --emit-lean   Emit a Lean 4 Circuit model (combinational designs only)\n" ++
+  "  --emit-lean   Emit a Lean 4 Circuit model\n" ++
   "  -h, --help    Show this message and exit"
 
 def main (args : List String) : IO Unit := do
@@ -22,8 +22,6 @@ def main (args : List String) : IO Unit := do
   | .error e => println! "Error: {e}"; IO.Process.exit 1
   | .ok ast  =>
     if flags.contains "--emit-lean" then
-      match Verilog.checkCombinational ast with
-      | some msg => println! "Error: {msg}"; IO.Process.exit 1
-      | none     => println! "{Verilog.emitLean ast}"
+      println! "{Verilog.emitLean ast}"
     else
       println! "{repr ast}"

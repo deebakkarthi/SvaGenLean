@@ -1,0 +1,12 @@
+[options]
+mode prove
+
+[engines]
+smtbmc
+
+[script]
+read -formal shift_reg4_formal.sv
+prep -top shift_reg4_formal
+
+[files]
+shift_reg4_formal.sv

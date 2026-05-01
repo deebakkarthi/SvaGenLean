@@ -1,0 +1,8 @@
+# running in shift_reg4/src/
+read -formal shift_reg4_formal.sv
+prep -top shift_reg4_formal
+
+hierarchy -smtcheck
+rename -witness
+write_jny -no-connections ../model/design.json
+write_rtlil ../model/design.il

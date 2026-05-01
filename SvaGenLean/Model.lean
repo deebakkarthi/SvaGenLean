@@ -1,9 +1,9 @@
 /-!
-# Circuit Model (Combinational)
+# Circuit Model
 
-A purely combinational circuit is modelled as a function `Input → Output`
-wrapped in a `Circuit Unit Input Output` so that future sequential extensions
-share the same interface.
+Circuits are modelled as Moore machines: `Circuit State Input Output`.
+Combinational circuits use `Unit` as the state; sequential circuits carry
+their register values in `State`.
 -/
 
 namespace Verilog
@@ -26,13 +26,33 @@ structure Circuit (State Input Output : Type) where
   /-- Output function.  For combinational circuits this ignores the state. -/
   observe : State → Input → Output
 
-/-- Construct a `Circuit` from a pure combinational function.
-    The state is trivially `Unit` and never changes. -/
+/-- Construct a `Circuit` from a pure combinational function. -/
 def mkComb {Input Output : Type} (f : Input → Output) :
     Circuit Unit Input Output where
   init    := ()
   step    := fun _ _ => ()
   observe := fun _ i => f i
+
+/-- Construct a sequential `Circuit` from explicit init/step/observe components. -/
+def mkSeq {State Input Output : Type}
+    (s0  : State)
+    (nxt : State → Input → State)
+    (obs : State → Input → Output) :
+    Circuit State Input Output where
+  init    := s0
+  step    := nxt
+  observe := obs
+
+-- ---------------------------------------------------------------------------
+-- Trace semantics
+-- ---------------------------------------------------------------------------
+
+/-- State at time `t` given an infinite input stream. -/
+def runState {State Input Output : Type}
+    (c : Circuit State Input Output) (inputs : Nat → Input) (t : Nat) : State :=
+  match t with
+  | Nat.zero   => c.init
+  | Nat.succ n => c.step (runState c inputs n) (inputs n)
 
 -- ---------------------------------------------------------------------------
 -- Lemmas: combinational circuits

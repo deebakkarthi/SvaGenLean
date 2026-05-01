@@ -1,0 +1,228 @@
+
+ /----------------------------------------------------------------------------\
+ |  yosys -- Yosys Open SYnthesis Suite                                       |
+ |  Copyright (C) 2012 - 2026  Claire Xenia Wolf <claire@yosyshq.com>         |
+ |  Distributed under an ISC-like license, type "license" to see terms        |
+ \----------------------------------------------------------------------------/
+ Yosys 0.64+159 (git sha1 5197b9c8c-dirty, aarch64-apple-darwin23.5-clang++ 18.1.8 -fPIC -O3)
+
+-- Executing script file `../model/design.ys' --
+
+1. Executing Verilog-2005 frontend: shift_reg4_formal.sv
+Parsing formal SystemVerilog input from `shift_reg4_formal.sv' to AST representation.
+Storing AST representation for module `$abstract\shift_reg4_formal'.
+Successfully finished Verilog frontend.
+
+2. Executing PREP pass.
+
+2.1. Executing HIERARCHY pass (managing design hierarchy).
+
+2.2. Executing AST frontend in derive mode using pre-parsed AST for module `\shift_reg4_formal'.
+Generating RTLIL representation for module `\shift_reg4_formal'.
+
+2.2.1. Analyzing design hierarchy..
+Top module:  \shift_reg4_formal
+
+2.2.2. Analyzing design hierarchy..
+Top module:  \shift_reg4_formal
+Removing unused module `$abstract\shift_reg4_formal'.
+Removed 1 unused modules.
+Module shift_reg4_formal directly or indirectly contains formal properties -> setting "keep" attribute.
+
+2.3. Executing PROC pass (convert processes to netlists).
+
+2.3.1. Executing PROC_CLEAN pass (remove empty switches from decision trees).
+Cleaned up 0 empty switches.
+
+2.3.2. Executing PROC_RMDEAD pass (remove dead branches from decision trees).
+Removed a total of 0 dead cases.
+
+2.3.3. Executing PROC_PRUNE pass (remove redundant assignments in processes).
+Removed 0 redundant assignments.
+Promoted 14 assignments to connections.
+
+2.3.4. Executing PROC_INIT pass (extract init attributes).
+Found init rule in `\shift_reg4_formal.$proc$shift_reg4_formal.sv:31$20'.
+  Set init value: \f_past_valid = 4'0000
+
+2.3.5. Executing PROC_ARST pass (detect async resets in processes).
+
+2.3.6. Executing PROC_ROM pass (convert switches to ROMs).
+Converted 0 switches.
+<suppressed ~3 debug messages>
+
+2.3.7. Executing PROC_MUX pass (convert decision trees to multiplexers).
+Creating decoders for process `\shift_reg4_formal.$proc$shift_reg4_formal.sv:31$20'.
+Creating decoders for process `\shift_reg4_formal.$proc$shift_reg4_formal.sv:49$14'.
+     1/1: \a3_EN
+Creating decoders for process `\shift_reg4_formal.$proc$shift_reg4_formal.sv:43$9'.
+     1/1: \a2_EN
+Creating decoders for process `\shift_reg4_formal.$proc$shift_reg4_formal.sv:37$6'.
+     1/1: \a1_EN
+Creating decoders for process `\shift_reg4_formal.$proc$shift_reg4_formal.sv:32$5'.
+Creating decoders for process `\shift_reg4_formal.$proc$shift_reg4_formal.sv:20$4'.
+
+2.3.8. Executing PROC_DLATCH pass (convert process syncs to latches).
+
+2.3.9. Executing PROC_DFF pass (convert process syncs to FFs).
+Creating register for signal `\shift_reg4_formal.$past$shift_reg4_formal.sv:51$3$0' using process `\shift_reg4_formal.$proc$shift_reg4_formal.sv:49$14'.
+  created $dff cell `$procdff$27' with positive edge clock.
+Creating register for signal `\shift_reg4_formal.$past$shift_reg4_formal.sv:51$3$1' using process `\shift_reg4_formal.$proc$shift_reg4_formal.sv:49$14'.
+  created $dff cell `$procdff$28' with positive edge clock.
+Creating register for signal `\shift_reg4_formal.$past$shift_reg4_formal.sv:51$3$2' using process `\shift_reg4_formal.$proc$shift_reg4_formal.sv:49$14'.
+  created $dff cell `$procdff$29' with positive edge clock.
+Creating register for signal `\shift_reg4_formal.$past$shift_reg4_formal.sv:51$3$3' using process `\shift_reg4_formal.$proc$shift_reg4_formal.sv:49$14'.
+  created $dff cell `$procdff$30' with positive edge clock.
+Creating register for signal `\shift_reg4_formal.$past$shift_reg4_formal.sv:45$2$0' using process `\shift_reg4_formal.$proc$shift_reg4_formal.sv:43$9'.
+  created $dff cell `$procdff$31' with positive edge clock.
+Creating register for signal `\shift_reg4_formal.$past$shift_reg4_formal.sv:45$2$1' using process `\shift_reg4_formal.$proc$shift_reg4_formal.sv:43$9'.
+  created $dff cell `$procdff$32' with positive edge clock.
+Creating register for signal `\shift_reg4_formal.$past$shift_reg4_formal.sv:45$2$2' using process `\shift_reg4_formal.$proc$shift_reg4_formal.sv:43$9'.
+  created $dff cell `$procdff$33' with positive edge clock.
+Creating register for signal `\shift_reg4_formal.$past$shift_reg4_formal.sv:39$1$0' using process `\shift_reg4_formal.$proc$shift_reg4_formal.sv:37$6'.
+  created $dff cell `$procdff$34' with positive edge clock.
+Creating register for signal `\shift_reg4_formal.\f_past_valid' using process `\shift_reg4_formal.$proc$shift_reg4_formal.sv:32$5'.
+  created $dff cell `$procdff$35' with positive edge clock.
+Creating register for signal `\shift_reg4_formal.\q0' using process `\shift_reg4_formal.$proc$shift_reg4_formal.sv:20$4'.
+  created $dff cell `$procdff$36' with positive edge clock.
+Creating register for signal `\shift_reg4_formal.\q1' using process `\shift_reg4_formal.$proc$shift_reg4_formal.sv:20$4'.
+  created $dff cell `$procdff$37' with positive edge clock.
+Creating register for signal `\shift_reg4_formal.\q2' using process `\shift_reg4_formal.$proc$shift_reg4_formal.sv:20$4'.
+  created $dff cell `$procdff$38' with positive edge clock.
+Creating register for signal `\shift_reg4_formal.\q3' using process `\shift_reg4_formal.$proc$shift_reg4_formal.sv:20$4'.
+  created $dff cell `$procdff$39' with positive edge clock.
+
+2.3.10. Executing PROC_MEMWR pass (convert process memory writes to cells).
+
+2.3.11. Executing PROC_CLEAN pass (remove empty switches from decision trees).
+Removing empty process `shift_reg4_formal.$proc$shift_reg4_formal.sv:31$20'.
+Found and cleaned up 1 empty switch in `\shift_reg4_formal.$proc$shift_reg4_formal.sv:49$14'.
+Removing empty process `shift_reg4_formal.$proc$shift_reg4_formal.sv:49$14'.
+Found and cleaned up 1 empty switch in `\shift_reg4_formal.$proc$shift_reg4_formal.sv:43$9'.
+Removing empty process `shift_reg4_formal.$proc$shift_reg4_formal.sv:43$9'.
+Found and cleaned up 1 empty switch in `\shift_reg4_formal.$proc$shift_reg4_formal.sv:37$6'.
+Removing empty process `shift_reg4_formal.$proc$shift_reg4_formal.sv:37$6'.
+Removing empty process `shift_reg4_formal.$proc$shift_reg4_formal.sv:32$5'.
+Removing empty process `shift_reg4_formal.$proc$shift_reg4_formal.sv:20$4'.
+Cleaned up 3 empty switches.
+
+2.3.12. Executing OPT_EXPR pass (perform const folding).
+Optimizing module shift_reg4_formal.
+
+2.4. Executing FUTURE pass.
+
+2.5. Executing OPT_EXPR pass (perform const folding).
+Optimizing module shift_reg4_formal.
+
+2.6. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \shift_reg4_formal..
+Removed 0 unused cells and 20 unused wires.
+<suppressed ~1 debug messages>
+
+2.7. Executing CHECK pass (checking for obvious problems).
+Checking module shift_reg4_formal...
+Found and reported 0 problems.
+
+2.8. Executing OPT pass (performing simple optimizations).
+
+2.8.1. Executing OPT_EXPR pass (perform const folding).
+Optimizing module shift_reg4_formal.
+
+2.8.2. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\shift_reg4_formal'.
+Computing hashes of 22 cells of `\shift_reg4_formal'.
+Finding duplicate cells in `\shift_reg4_formal'.
+Removed a total of 0 cells.
+
+2.8.3. Executing OPT_MUXTREE pass (detect dead branches in mux trees).
+Running muxtree optimizer on module \shift_reg4_formal..
+  Creating internal representation of mux trees.
+  Evaluating internal representation of mux trees.
+  Analyzing evaluation results.
+Removed 0 multiplexer ports.
+<suppressed ~6 debug messages>
+
+2.8.4. Executing OPT_REDUCE pass (consolidate $*mux and $reduce_* inputs).
+  Optimizing cells in module \shift_reg4_formal.
+Performed a total of 0 changes.
+
+2.8.5. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\shift_reg4_formal'.
+Computing hashes of 22 cells of `\shift_reg4_formal'.
+Finding duplicate cells in `\shift_reg4_formal'.
+Removed a total of 0 cells.
+
+2.8.6. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \shift_reg4_formal..
+
+2.8.7. Executing OPT_EXPR pass (perform const folding).
+Optimizing module shift_reg4_formal.
+
+2.8.8. Finished fast OPT passes. (There is nothing left to do.)
+
+2.9. Executing WREDUCE pass (reducing word size of cells).
+
+2.10. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \shift_reg4_formal..
+
+2.11. Executing MEMORY_COLLECT pass (generating $mem cells).
+
+2.12. Executing OPT pass (performing simple optimizations).
+
+2.12.1. Executing OPT_EXPR pass (perform const folding).
+Optimizing module shift_reg4_formal.
+
+2.12.2. Executing OPT_MERGE pass (detect identical cells).
+Finding identical cells in module `\shift_reg4_formal'.
+Computing hashes of 22 cells of `\shift_reg4_formal'.
+Finding duplicate cells in `\shift_reg4_formal'.
+Removed a total of 0 cells.
+
+2.12.3. Executing OPT_CLEAN pass (remove unused cells and wires).
+Finding unused cells or wires in module \shift_reg4_formal..
+
+2.12.4. Finished fast OPT passes.
+
+2.13. Executing SORT pass.
+
+2.14. Printing statistics.
+
+=== shift_reg4_formal ===
+
+        +----------Local Count, excluding submodules.
+        | 
+       21 wires
+       24 wire bits
+       10 public wires
+       13 public wire bits
+        2 ports
+        2 port bits
+       22 cells
+        3   $check
+       13   $dff
+        3   $eq
+        3   $mux
+
+2.15. Executing CHECK pass (checking for obvious problems).
+Checking module shift_reg4_formal...
+Found and reported 0 problems.
+
+3. Executing HIERARCHY pass (managing design hierarchy).
+Attribute `top' found on module `shift_reg4_formal'. Setting top module to shift_reg4_formal.
+
+3.1. Analyzing design hierarchy..
+Top module:  \shift_reg4_formal
+
+3.2. Analyzing design hierarchy..
+Top module:  \shift_reg4_formal
+Removed 0 unused modules.
+Module shift_reg4_formal directly or indirectly contains formal properties -> setting "keep" attribute.
+
+4. Executing jny backend.
+
+5. Executing RTLIL backend.
+Output filename: ../model/design.il
+
+End of script. Logfile hash: fa1867d523, time: 0.02s, user: 0.02s, system: 0.03s, MEM: 16.12 MB peak
+Yosys 0.64+159 (git sha1 5197b9c8c-dirty, aarch64-apple-darwin23.5-clang++ 18.1.8 -fPIC -O3)
+Time spent: 19% 2x hierarchy (0 sec), 15% 2x read_verilog (0 sec), ...

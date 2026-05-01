@@ -4,13 +4,11 @@ import SvaGenLean.Width
 /-!
 # Lean Model Emitter
 
-Generates Lean 4 source representing a purely-combinational Verilog module
-as a `Circuit Unit Input Output` (see `Model.lean`).
+Generates Lean 4 source for combinational and sequential Verilog modules.
 
-For each module:
-  - `structure <ModName>_Input`  — one field per input port
-  - `structure <ModName>_Output` — one field per output port
-  - `def <modName>Circuit`       — `mkComb`-wrapped circuit with translated body
+Combinational modules become `Circuit Unit Input Output` via `mkComb`.
+Sequential modules (single posedge clock, non-blocking assignments only)
+become `Circuit State Input Output` via `mkSeq`.
 
 ## Expression coverage (Verilog-1995 BNF)
 
@@ -48,17 +46,17 @@ private def capitalize (s : String) : String :=
   | []      => s
   | c :: cs => String.ofList (c.toUpper :: cs)
 
+private def defaultInit (w : Width) : String :=
+  if w == 1 then "false" else s!"(0 : BitVec {w})"
+
 -- ---------------------------------------------------------------------------
 -- Expression translation
 -- ---------------------------------------------------------------------------
 
-/-- Translate a Verilog number literal to a Lean literal.
-    1-bit binary/hex/decimal values map to `true`/`false`.
-    Multi-bit based literals become `(value : BitVec n)`.
-    Plain decimals are emitted as-is and rely on Lean's type inference. -/
+/-- Translate a Verilog number literal to a Lean literal. -/
 private def translateNumber (s : String) : Option String :=
   if !s.contains '\'' then
-    some s  -- plain decimal; Lean infers the type
+    some s
   else
     match s.splitOn "'" with
     | [sizeStr, rest] =>
@@ -79,7 +77,7 @@ private def translateNumber (s : String) : Option String :=
       | 'o' :: digits | 'O' :: digits =>
         let ds := String.ofList digits
         if !is1 then some s!"(0o{ds} : BitVec {size})"
-        else none  -- 1-bit octal is unusual; skip
+        else none
       | 'd' :: digits | 'D' :: digits =>
         let ds := String.ofList digits
         if !is1 then some s!"({ds} : BitVec {size})"
@@ -88,22 +86,11 @@ private def translateNumber (s : String) : Option String :=
       | _ => none
     | _ => none
 
-/-- Map a Verilog unary operator to its Lean equivalent.
-    `opW` is the bit-width of the operand (1 = Bool, else BitVec).
-    Reduction ops collapse all bits to a single Bool.
-    Operator tokens as produced by the parser:
-      &  → all bits 1     (~~~v == 0)
-      ~& → not all 1      (~~~v != 0)
-      |  → any bit 1      (v != 0)
-      ^| → all bits 0     (v == 0)     [NOR — BNF token]
-      ^  → parity         (bvXorReduce v)
-      ~^ → even parity    (!bvXorReduce v) -/
 private def translateUnary (op : String) (opW : Width) (e : String) : Option String :=
   match op with
   | "+"  => some e
   | "-"  => some s!"(-{e})"
   | "!"  => some s!"(!{e})"
-  -- 1-bit (Bool) complement uses `!`; multi-bit uses `~~~`
   | "~"  => if opW == 1 then some s!"(!{e})" else some s!"(~~~{e})"
   | "&"  => some s!"(~~~{e} == 0)"
   | "~&" => some s!"(~~~{e} != 0)"
@@ -114,10 +101,6 @@ private def translateUnary (op : String) (opW : Width) (e : String) : Option Str
   | "~^" => some s!"(!bvXorReduce {e})"
   | _    => none
 
-/-- Map a Verilog binary operator to its Lean equivalent.
-    `opW` is the bit-width of the operands (1 = Bool, else BitVec).
-    For 1-bit signals the bitwise operators map to their Bool equivalents
-    (`Bool.xor`, `&&`, `||`) since `HXor`/`HAnd`/`HOr` have no `Bool` instance. -/
 private def translateBinary (op : String) (opW : Width) (l r : String) : Option String :=
   match op with
   | "+"           => some s!"({l} + {r})"
@@ -142,46 +125,42 @@ private def translateBinary (op : String) (opW : Width) (l r : String) : Option 
   | _             => none
 
 /-- Translate a Verilog expression to a Lean expression string.
-    `env` is used for width inference (e.g. to detect 1-bit signals in concat).
-    `inp` names the input-bundle argument in the generated `mkComb` body.
-    Returns `none` for unsupported forms; callers fall back to `sorry`. -/
-private def translateExpr (env : WidthEnv) (inp : String) : Expr → Option String
-  | .ident i    => some s!"{inp}.{i}"
+    Identifiers in `regs` are read from `_s`; all others from `inp`. -/
+private def translateExpr (env : WidthEnv) (inp : String) (state : String)
+    (regs : List String) : Expr → Option String
+  | .ident i    =>
+      if regs.contains i then some s!"{state}.{i}" else some s!"{inp}.{i}"
   | .number s   => translateNumber s
   | .unary op e => do
-      let e' ← translateExpr env inp e
+      let e' ← translateExpr env inp state regs e
       let w  := inferWidth env e |>.getD 0
       translateUnary op w e'
   | .binary op l r => do
-      let l' ← translateExpr env inp l
-      let r' ← translateExpr env inp r
-      -- Use the left-operand width to choose Bool vs BitVec operators
+      let l' ← translateExpr env inp state regs l
+      let r' ← translateExpr env inp state regs r
       let w  := inferWidth env l |>.getD 0
       translateBinary op w l' r'
   | .ternary cond t f => do
-      let c' ← translateExpr env inp cond
-      let t' ← translateExpr env inp t
-      let f' ← translateExpr env inp f
+      let c' ← translateExpr env inp state regs cond
+      let t' ← translateExpr env inp state regs t
+      let f' ← translateExpr env inp state regs f
       some s!"(if {c'} then {t'} else {f'})"
   | .index e (.number idx) => do
-      -- Variable indices are not yet supported
       guard (!idx.contains '\'')
-      let e' ← translateExpr env inp e
+      let e' ← translateExpr env inp state regs e
       some s!"({e'}.getLsb {idx})"
   | .slice e hi lo => do
-      -- Only constant (non-based) bounds are supported
       let hiN ← match hi with
         | .number s => if s.contains '\'' then none else some s
         | _ => none
       let loN ← match lo with
         | .number s => if s.contains '\'' then none else some s
         | _ => none
-      let e' ← translateExpr env inp e
+      let e' ← translateExpr env inp state regs e
       some s!"({e'}.extractLsb {hiN} {loN})"
   | .concat parts => do
-      -- 1-bit (Bool) parts must be lifted to BitVec 1 before concatenation
       let ps ← parts.mapM fun p => do
-        let s ← translateExpr env inp p
+        let s ← translateExpr env inp state regs p
         if inferWidth env p == some 1 then some s!"(BitVec.ofBool {s})"
         else some s
       match ps with
@@ -193,7 +172,7 @@ private def translateExpr (env : WidthEnv) (inp : String) : Expr → Option Stri
         | .number s => if s.contains '\'' then none else s.toNat?
         | _ => none
       let ps ← parts.mapM fun p => do
-        let s ← translateExpr env inp p
+        let s ← translateExpr env inp state regs p
         if inferWidth env p == some 1 then some s!"(BitVec.ofBool {s})"
         else some s
       let base ← match ps with
@@ -204,7 +183,7 @@ private def translateExpr (env : WidthEnv) (inp : String) : Expr → Option Stri
   | _ => none
 
 -- ---------------------------------------------------------------------------
--- Per-module emission
+-- Shared collection helpers
 -- ---------------------------------------------------------------------------
 
 private def collectPorts (items : List ModuleItem) :
@@ -215,16 +194,15 @@ private def collectPorts (items : List ModuleItem) :
     | .output_decl _ names => (ins, outs ++ names)
     | _ => (ins, outs)) ([], [])
 
-/-- Collect continuous assignments whose LValue is a plain identifier.
-    Returns an association list mapping signal name → translated RHS. -/
-private def collectAssigns (env : WidthEnv) (items : List ModuleItem) : List (String × String) :=
+private def collectAssigns (env : WidthEnv) (state : String) (regs : List String)
+    (items : List ModuleItem) : List (String × String) :=
   items.foldl (fun acc item =>
     match item with
     | .cont_assign _ _ assigns =>
       assigns.foldl (fun a asgn =>
         match asgn.lv with
         | .ident name =>
-          match translateExpr env "_inp" asgn.e with
+          match translateExpr env "_inp" state regs asgn.e with
           | some rhs => a ++ [(name, rhs)]
           | none     => a
         | _ => a) acc
@@ -237,34 +215,121 @@ private def emitStruct (structId : String) (env : WidthEnv)
     s!"  {name} : {leanType w}"
   (s!"structure {structId} where" :: fields) |> String.intercalate "\n"
 
-private def emitCircuit (modName : String) (outputs : List String)
-    (assigns : List (String × String)) : String :=
-  let inTy  := capitalize modName ++ "_Input"
-  let outTy := capitalize modName ++ "_Output"
+-- ---------------------------------------------------------------------------
+-- Combinational module emitter
+-- ---------------------------------------------------------------------------
+
+private def emitCombModule (m : Module) : String :=
+  let (inputs, outputs) := collectPorts m.items
+  let env      := buildWidthEnv m.items
+  let assigns  := collectAssigns env "" [] m.items
+  let inStruct := emitStruct (capitalize m.name ++ "_Input")  env inputs
+  let outStruct:= emitStruct (capitalize m.name ++ "_Output") env outputs
   let fields := outputs.map fun n =>
     let rhs := (assigns.find? fun (k, _) => k == n).map (·.2) |>.getD "sorry"
     s!"    {n} := {rhs}"
-  let body := String.intercalate "\n" fields
-  s!"def {modName}Circuit : Circuit Unit {inTy} {outTy} :=\n" ++
-  s!"  mkComb fun _inp =>\n  \{\n{body}\n  }"
+  let body    := String.intercalate "\n" fields
+  let inTy    := capitalize m.name ++ "_Input"
+  let outTy   := capitalize m.name ++ "_Output"
+  let circuit :=
+    s!"def {m.name}Circuit : Circuit Unit {inTy} {outTy} :=\n" ++
+    s!"  mkComb fun _inp =>\n  \{\n{body}\n  }"
+  [s!"-- Module: {m.name}", inStruct, outStruct, circuit]
+    |> String.intercalate "\n\n"
+
+-- ---------------------------------------------------------------------------
+-- Sequential module emitter
+-- ---------------------------------------------------------------------------
+
+private def collectRegs (items : List ModuleItem) : List String :=
+  items.foldl (fun acc item =>
+    match item with
+    | .reg_decl _ vars => acc ++ vars.filterMap fun
+      | .scalar n => some n
+      | _         => none
+    | _ => acc) []
+
+private partial def collectNBAs : Stmt → List (String × Expr)
+  | .nonblocking (.ident name) _ e => [(name, e)]
+  | .seq_block _ _ stmts           => stmts.flatMap collectNBAs
+  | _                              => []
+
+private def collectSeqAssigns (clock : String) (items : List ModuleItem) :
+    List (String × Expr) :=
+  items.foldl (fun acc item =>
+    match item with
+    | .always_stmt (.delay (.event (.posedge (.ident clk))) (some body)) =>
+      if clk == clock then acc ++ collectNBAs body else acc
+    | _ => acc) []
+
+private def emitSeqModule (m : Module) (clock : String) : String :=
+  let (inputs, outputs) := collectPorts m.items
+  let inputs      := inputs.filter (· != clock)
+  let env         := buildWidthEnv m.items
+  let regs        := collectRegs m.items
+  let nbas        := collectSeqAssigns clock m.items
+  let contAssigns := collectAssigns env "_s" regs m.items
+
+  let inTy    := capitalize m.name ++ "_Input"
+  let stateTy := capitalize m.name ++ "_State"
+  let outTy   := capitalize m.name ++ "_Output"
+
+  let inStruct    := emitStruct inTy    env inputs
+  let stateStruct := emitStruct stateTy env regs
+  let outStruct   := emitStruct outTy   env outputs
+
+  -- init: all registers default to false / 0
+  let initFields := regs.map fun r =>
+    let w := env.lookup r |>.getD 1
+    s!"{r} := {defaultInit w}"
+  let initBody := "{ " ++ String.intercalate ", " initFields ++ " }"
+
+  -- step: non-blocking assignment RHS; unassigned registers hold their value
+  let stepFields := regs.map fun r =>
+    let rhs := (nbas.find? fun (k, _) => k == r)
+      |>.bind  (fun (_, e) => translateExpr env "_inp" "_s" regs e)
+      |>.getD  s!"_s.{r}"
+    s!"    {r} := {rhs}"
+  let stepBody := String.intercalate "\n" stepFields
+
+  -- observe: registers come from state; combinational outputs from cont_assign
+  let obsFields := outputs.map fun n =>
+    let rhs :=
+      if regs.contains n then s!"_s.{n}"
+      else (contAssigns.find? fun (k, _) => k == n) |>.map (·.2) |>.getD "sorry"
+    s!"    {n} := {rhs}"
+  let obsBody := String.intercalate "\n" obsFields
+
+  let circuit :=
+    s!"def {m.name}Circuit : Circuit {stateTy} {inTy} {outTy} :=\n" ++
+    s!"  mkSeq {initBody}\n" ++
+    s!"    (fun _s _inp =>\n    \{\n{stepBody}\n    })\n" ++
+    s!"    (fun _s _inp =>\n    \{\n{obsBody}\n    })"
+
+  [s!"-- Module: {m.name}", inStruct, stateStruct, outStruct, circuit]
+    |> String.intercalate "\n\n"
+
+-- ---------------------------------------------------------------------------
+-- Module dispatcher: detect combinational vs sequential
+-- ---------------------------------------------------------------------------
+
+private def posEdgeClock : Stmt → Option String
+  | .delay (.event (.posedge (.ident clk))) _ => some clk
+  | _                                          => none
 
 private def emitModule (m : Module) : String :=
-  let (inputs, outputs) := collectPorts m.items
-  let env      := buildWidthEnv m.items
-  let assigns  := collectAssigns env m.items
-  let inStruct := emitStruct (capitalize m.name ++ "_Input")  env inputs
-  let outStruct:= emitStruct (capitalize m.name ++ "_Output") env outputs
-  let circuit  := emitCircuit m.name outputs assigns
-  [ s!"-- Module: {m.name}", inStruct, outStruct, circuit ]
-    |> String.intercalate "\n\n"
+  let clocks :=
+    (m.items.filterMap fun | .always_stmt s => posEdgeClock s | _ => none)
+    |>.foldl (fun acc c => if acc.contains c then acc else acc ++ [c]) []
+  match clocks with
+  | []    => emitCombModule m
+  | [clk] => emitSeqModule m clk
+  | _     => s!"-- Unsupported module '{m.name}': multiple clock domains\n"
 
 -- ---------------------------------------------------------------------------
 -- Top-level entry point
 -- ---------------------------------------------------------------------------
 
-/-- Emit a complete Lean 4 source file modelling every module in `src`
-    as a `Circuit Unit Input Output` via `mkComb`. -/
--- Helper emitted into every generated file for XOR/XNOR reduction.
 private def bvXorReduceHelper : String :=
   "-- Reduction XOR: fold XOR over all bits (parity)\n" ++
   "private def bvXorReduce {n : Nat} (v : BitVec n) : Bool :=\n" ++
