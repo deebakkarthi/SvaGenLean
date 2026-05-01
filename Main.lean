@@ -1,3 +1,5 @@
+import SvaGenLean
+
 def help: IO Unit := do
   IO.print "Usage: svagenlean [FILE|-h]
   Convert a verilog file into its lean representation
@@ -10,9 +12,9 @@ def main(args: List String) : IO UInt32:= do
   | [] => do
     let stdin <- IO.getStdin
     let file <- stdin.readToEnd
-    IO.println file
+    lex file
     return 0
-  | x::xs => do
+  | x::xs => 
     -- If we have multiple args
     if xs !=[] then help
     if x == "-h" then do
@@ -29,5 +31,5 @@ def main(args: List String) : IO UInt32:= do
       IO.Process.exit 1
 
     let file <- IO.FS.readFile x
-    IO.println file
+    lex file
     return 0
