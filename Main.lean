@@ -4,13 +4,14 @@ def help: IO Unit := do
   FILE\ta verilog file. If not passed, input is read from stdin
   -h\tPrint out this help message\n"
 
-def main(args: List String) : IO Unit := do
+def main(args: List String) : IO UInt32:= do
   match args with
   -- Read from stdin if no args are provided
   | [] => do
     let stdin <- IO.getStdin
     let file <- stdin.readToEnd
     IO.println file
+    return 0
   | x::xs => do
     -- If we have multiple args
     if xs !=[] then help
@@ -29,3 +30,4 @@ def main(args: List String) : IO Unit := do
 
     let file <- IO.FS.readFile x
     IO.println file
+    return 0
