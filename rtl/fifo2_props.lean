@@ -161,7 +161,6 @@ theorem fifo2_wptr_increments_BUGGY :
     Bool.toNat (runState fifo2Circuit inputs (k + 1)).wptr =
       Bool.toNat (runState fifo2Circuit inputs k).wptr + 1 := by
   intro inputs k hwr hnotfull
-  simp only [runState, fifo2Circuit, mkSeq, hwr, true_and]
-  have hbne : ((runState fifo2Circuit inputs k).cnt != (2 : BitVec 2)) = true := by
-    simp [bne_iff_ne, hnotfull]
-  simp [hbne]
+  simp only [runState, fifo2Circuit, mkSeq, hwr, Bool.true_and,
+             bne_iff_ne, ne_eq, hnotfull, not_false_eq_true, ite_true]
+  omega
